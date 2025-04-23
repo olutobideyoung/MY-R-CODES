@@ -1,0 +1,249 @@
+{
+  "cells": [
+    {
+      "cell_type": "markdown",
+      "metadata": {
+        "id": "view-in-github",
+        "colab_type": "text"
+      },
+      "source": [
+        "<a href=\"https://colab.research.google.com/github/olutobideyoung/MY-R-CODES/blob/main/Image%20Processing%20Code\" target=\"_parent\"><img src=\"https://colab.research.google.com/assets/colab-badge.svg\" alt=\"Open In Colab\"/></a>"
+      ]
+    },
+    {
+      "cell_type": "code",
+      "source": [
+        "# image_classification_weed.ipynb\n",
+        "\n",
+        "# Section 1: Import Libraries\n",
+        "import numpy as np\n",
+        "import matplotlib.pyplot as plt\n",
+        "from sklearn.metrics import classification_report, confusion_matrix\n",
+        "from tensorflow.keras.preprocessing.image import ImageDataGenerator\n",
+        "from tensorflow.keras.models import Sequential, Model, load_model\n",
+        "from tensorflow.keras.layers import Conv2D, MaxPooling2D, Flatten, Dense, Dropout, GlobalAveragePooling2D\n",
+        "from tensorflow.keras.applications import MobileNetV2\n",
+        "from tensorflow.keras.optimizers import Adam\n",
+        "\n"
+      ],
+      "metadata": {
+        "id": "qcJdzK_dyylb"
+      },
+      "execution_count": null,
+      "outputs": []
+    },
+    {
+      "cell_type": "code",
+      "source": [
+        "# Section 2: Data Preparation\n",
+        "img_size = (224, 224)\n",
+        "batch_size = 32\n",
+        "\n",
+        "data_path = 'data_task1'  # update path as needed\n",
+        "\n",
+        "train_datagen = ImageDataGenerator(rescale=1./255, horizontal_flip=True, rotation_range=20)\n",
+        "val_datagen = ImageDataGenerator(rescale=1./255)\n",
+        "test_datagen = ImageDataGenerator(rescale=1./255)"
+      ],
+      "metadata": {
+        "id": "4zZYkrQjzGZq"
+      },
+      "execution_count": null,
+      "outputs": []
+    },
+    {
+      "cell_type": "code",
+      "source": [
+        "train_data = train_datagen.flow_from_directory(f'{data_path}/train',\n",
+        "                                               target_size=img_size,\n",
+        "                                               batch_size=batch_size,\n",
+        "                                               class_mode='binary')\n",
+        "val_data = val_datagen.flow_from_directory(f'{data_path}/val',\n",
+        "                                           target_size=img_size,\n",
+        "                                           batch_size=batch_size,\n",
+        "                                           class_mode='binary')\n",
+        "test_data = test_datagen.flow_from_directory(f'{data_path}/test',\n",
+        "                                             target_size=img_size,\n",
+        "                                             batch_size=batch_size,\n",
+        "                                             class_mode='binary',\n",
+        "                                             shuffle=False)"
+      ],
+      "metadata": {
+        "id": "lUNn7GbzzRd0"
+      },
+      "execution_count": null,
+      "outputs": []
+    },
+    {
+      "cell_type": "code",
+      "source": [
+        "# Section 3: Baseline CNN Model\n",
+        "model_cnn = Sequential([\n",
+        "    Conv2D(32, (3, 3), activation='relu', input_shape=(224, 224, 3)),\n",
+        "    MaxPooling2D(2, 2),\n",
+        "    Conv2D(64, (3, 3), activation='relu'),\n",
+        "    MaxPooling2D(2, 2),\n",
+        "    Flatten(),\n",
+        "    Dense(128, activation='relu'),\n",
+        "    Dropout(0.5),\n",
+        "    Dense(1, activation='sigmoid')\n",
+        "])"
+      ],
+      "metadata": {
+        "id": "QcKwtqTGzW_k"
+      },
+      "execution_count": null,
+      "outputs": []
+    },
+    {
+      "cell_type": "code",
+      "source": [
+        "model_cnn.compile(optimizer='adam', loss='binary_crossentropy', metrics=['accuracy'])\n",
+        "\n",
+        "history_cnn = model_cnn.fit(train_data, validation_data=val_data, epochs=10)\n",
+        "model_cnn.save('baseline_cnn_model.h5')"
+      ],
+      "metadata": {
+        "id": "abb87WImzf3q"
+      },
+      "execution_count": null,
+      "outputs": []
+    },
+    {
+      "cell_type": "code",
+      "source": [
+        "# Section 4: Transfer Learning with MobileNetV2\n",
+        "base_model = MobileNetV2(weights='imagenet', include_top=False, input_shape=(224, 224, 3))\n",
+        "base_model.trainable = False\n",
+        "\n",
+        "x = base_model.output\n",
+        "x = GlobalAveragePooling2D()(x)\n",
+        "x = Dense(128, activation='relu')(x)\n",
+        "x = Dropout(0.5)(x)\n",
+        "predictions = Dense(1, activation='sigmoid')(x)"
+      ],
+      "metadata": {
+        "id": "2yyFaTrnzlRM"
+      },
+      "execution_count": null,
+      "outputs": []
+    },
+    {
+      "cell_type": "code",
+      "source": [
+        "model_transfer = Model(inputs=base_model.input, outputs=predictions)\n",
+        "model_transfer.compile(optimizer=Adam(learning_rate=0.0001), loss='binary_crossentropy', metrics=['accuracy'])\n",
+        "\n",
+        "history_transfer = model_transfer.fit(train_data, validation_data=val_data, epochs=10)\n",
+        "model_transfer.save('mobilenetv2_model.h5')"
+      ],
+      "metadata": {
+        "id": "D-XL0jARzvAi"
+      },
+      "execution_count": null,
+      "outputs": []
+    },
+    {
+      "cell_type": "code",
+      "source": [
+        "# Section 5: Evaluation & Comparison\n",
+        "def evaluate_model(model, test_data, model_name):\n",
+        "    preds = model.predict(test_data)\n",
+        "    pred_labels = (preds > 0.5).astype(\"int32\")\n",
+        "    true_labels = test_data.classes\n",
+        "    report = classification_report(true_labels, pred_labels, target_names=['charlock', 'cleaves'], output_dict=True)\n",
+        "    acc = report['accuracy']\n",
+        "    print(f\"\\nModel: {model_name}\\n\")\n",
+        "    print(classification_report(true_labels, pred_labels, target_names=['charlock', 'cleaves']))\n",
+        "    print(\"Confusion Matrix:\\n\", confusion_matrix(true_labels, pred_labels))\n",
+        "    return acc\n"
+      ],
+      "metadata": {
+        "id": "vTuwaOLl0Z98"
+      },
+      "execution_count": null,
+      "outputs": []
+    },
+    {
+      "cell_type": "code",
+      "source": [
+        "acc_cnn = evaluate_model(model_cnn, test_data, \"Baseline CNN\")\n",
+        "acc_transfer = evaluate_model(model_transfer, test_data, \"MobileNetV2 Transfer Learning\")\n",
+        "\n",
+        "# Section 6: Visualizations\n",
+        "def plot_history(history, title):\n",
+        "    plt.plot(history.history['accuracy'], label='Train Accuracy')\n",
+        "    plt.plot(history.history['val_accuracy'], label='Validation Accuracy')\n",
+        "    plt.title(title)\n",
+        "    plt.xlabel('Epoch')\n",
+        "    plt.ylabel('Accuracy')\n",
+        "    plt.legend()\n",
+        "    plt.show()"
+      ],
+      "metadata": {
+        "id": "Vki7NqRS0g0Q"
+      },
+      "execution_count": null,
+      "outputs": []
+    },
+    {
+      "cell_type": "code",
+      "source": [
+        "plot_history(history_cnn, 'CNN Accuracy')\n",
+        "plot_history(history_transfer, 'MobileNetV2 Accuracy')"
+      ],
+      "metadata": {
+        "id": "z3SXGlGt0k1Z"
+      },
+      "execution_count": null,
+      "outputs": []
+    },
+    {
+      "cell_type": "code",
+      "source": [
+        "# Section 7: Summary Table\n",
+        "import pandas as pd\n",
+        "\n",
+        "comparison_df = pd.DataFrame({\n",
+        "    'Model': ['Baseline CNN', 'MobileNetV2'],\n",
+        "    'Test Accuracy': [acc_cnn, acc_transfer],\n",
+        "    'Notes': [\n",
+        "        'Simple CNN with 2 conv layers',\n",
+        "        'Transfer learning with pre-trained MobileNetV2'\n",
+        "    ]\n",
+        "})\n",
+        "\n",
+        "print(\"\\nModel Comparison Summary:\")\n",
+        "print(comparison_df.to_string(index=False))"
+      ],
+      "metadata": {
+        "id": "J2XfmVah0qTA"
+      },
+      "execution_count": null,
+      "outputs": []
+    },
+    {
+      "cell_type": "code",
+      "source": [],
+      "metadata": {
+        "id": "qkHQqR7g0qcG"
+      },
+      "execution_count": null,
+      "outputs": []
+    }
+  ],
+  "metadata": {
+    "colab": {
+      "name": "Welcome To Colab",
+      "toc_visible": true,
+      "provenance": [],
+      "include_colab_link": true
+    },
+    "kernelspec": {
+      "display_name": "Python 3",
+      "name": "python3"
+    }
+  },
+  "nbformat": 4,
+  "nbformat_minor": 0
+}
